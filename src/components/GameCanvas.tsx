@@ -23,6 +23,7 @@ export function GameCanvas() {
   const [started, setStarted] = useState(false)
   const [finished, setFinished] = useState(false)
   const [lost, setLost] = useState(false)
+  const [lostReason, setLostReason] = useState<'guardian' | 'timeout'>('guardian')
   const [score, setScore] = useState(0)
   const [timeRemaining, setTimeRemaining] = useState(60)
   const [isPaused, setIsPaused] = useState(false)
@@ -74,7 +75,9 @@ export function GameCanvas() {
       setIsPaused(false)
     }
 
-    const handleGameLost = () => {
+    const handleGameLost = (event: Event) => {
+      const detail = (event as CustomEvent<{ reason?: 'guardian' | 'timeout' }>).detail
+      setLostReason(detail?.reason ?? 'guardian')
       setLost(true)
       setFinished(false)
       setIsPaused(false)
@@ -113,6 +116,7 @@ export function GameCanvas() {
     setTimeRemaining(60)
     setFinished(false)
     setLost(false)
+    setLostReason('guardian')
     setIsPaused(false)
     setStarted(true)
     createGameInstance()
@@ -149,7 +153,7 @@ export function GameCanvas() {
       )}
       {!started && <StartScreen onStart={startRun} />}
       {finished && <ResultScreen score={score} onRestart={restartGame} />}
-      {lost && !finished && <LoseScreen score={score} onRestart={restartGame} />}
+      {lost && !finished && <LoseScreen score={score} reason={lostReason} onRestart={restartGame} />}
     </div>
   )
 }

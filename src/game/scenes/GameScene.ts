@@ -142,12 +142,16 @@ export class GameScene extends Phaser.Scene {
     this.scene.pause()
   }
 
-  private triggerLose() {
+  private triggerLose(reason: 'guardian' | 'timeout' = 'guardian') {
     if (this.isGameOver) {
       return
     }
 
-    this.emitGameEvent('game-lost', { score: this.score, timeRemaining: this.timeRemaining })
+    this.emitGameEvent('game-lost', {
+      score: this.score,
+      timeRemaining: this.timeRemaining,
+      reason,
+    })
     this.callbacks.onRunLose?.(this.score)
     this.finishRun()
   }
@@ -457,7 +461,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (this.timeRemaining <= 0) {
-      this.triggerLose()
+      this.triggerLose('timeout')
       return
     }
 
