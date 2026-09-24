@@ -1,11 +1,38 @@
-export const arena = {
+type ArenaPoint = {
+  x: number
+  y: number
+}
+
+type ArenaWall = ArenaPoint & {
+  width: number
+  height: number
+}
+
+export type Arena = {
+  width: number
+  height: number
+  background: string
+  playerX: number
+  playerY: number
+  moveSpeed: number
+  timerSeconds: number
+  guardianStart: ArenaPoint
+  exit: ArenaPoint
+  wallSegments: ArenaWall[]
+  shardSpawns: ArenaPoint[]
+  shardRadius: number
+}
+
+export const arena: Arena = {
   width: 960,
   height: 540,
   background: '#1e1633',
   playerX: 70,
   playerY: 470,
   moveSpeed: 180,
+  timerSeconds: 60,
   guardianStart: { x: 840, y: 90 },
+  exit: { x: 870, y: 70 },
   wallSegments: [
     { x: 180, y: 110, width: 190, height: 18 },
     { x: 430, y: 110, width: 210, height: 18 },
@@ -30,4 +57,4 @@ export const arena = {
     { x: 400, y: 360 },
   ],
   shardRadius: 10,
-} as const
+}

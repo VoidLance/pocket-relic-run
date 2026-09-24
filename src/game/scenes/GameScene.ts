@@ -1,7 +1,44 @@
 import Phaser from 'phaser'
 
-import { arena } from '../data/arena'
 import { createShard } from '../systems/pickups'
+
+const arenaConfig = {
+  width: 960,
+  height: 540,
+  background: '#1e1633',
+  playerX: 70,
+  playerY: 470,
+  moveSpeed: 180,
+  timerSeconds: 60,
+  guardianStart: { x: 840, y: 90 },
+  exit: { x: 870, y: 70 },
+  wallSegments: [
+    { x: 180, y: 110, width: 190, height: 18 },
+    { x: 430, y: 110, width: 210, height: 18 },
+    { x: 720, y: 110, width: 180, height: 18 },
+    { x: 290, y: 200, width: 18, height: 150 },
+    { x: 500, y: 200, width: 18, height: 180 },
+    { x: 670, y: 200, width: 18, height: 180 },
+    { x: 160, y: 300, width: 260, height: 18 },
+    { x: 420, y: 300, width: 210, height: 18 },
+    { x: 690, y: 300, width: 210, height: 18 },
+    { x: 220, y: 430, width: 18, height: 110 },
+    { x: 420, y: 430, width: 18, height: 110 },
+    { x: 760, y: 430, width: 18, height: 110 },
+    { x: 140, y: 470, width: 200, height: 18 },
+    { x: 520, y: 470, width: 180, height: 18 },
+    { x: 800, y: 470, width: 120, height: 18 },
+  ],
+  shardSpawns: [
+    { x: 220, y: 180 },
+    { x: 770, y: 240 },
+    { x: 650, y: 450 },
+    { x: 400, y: 360 },
+  ],
+  shardRadius: 10,
+} as const
+
+type GameEventName = 'shard-collected' | 'timer-changed' | 'game-won' | 'game-lost'
 
 export class GameScene extends Phaser.Scene {
   private player!: Phaser.GameObjects.Rectangle
@@ -14,25 +51,63 @@ export class GameScene extends Phaser.Scene {
     W: Phaser.Input.Keyboard.Key
     S: Phaser.Input.Keyboard.Key
   }
-  private tipText!: Phaser.GameObjects.Text
+  private exit!: Phaser.GameObjects.Rectangle
   private shards: Array<Phaser.GameObjects.Arc & Phaser.Physics.Arcade.Body> = []
   private score = 0
-  private readonly maxScore = arena.shardSpawns.length
+  private timeRemaining: number = arenaConfig.timerSeconds
+  private lastEmittedTimer = Math.ceil(arenaConfig.timerSeconds)
+  private readonly maxScore = arenaConfig.shardSpawns.length
+  private readonly requiredShards = 3
+  private isGameOver = false
   private readonly callbacks: {
     onScoreChange?: (score: number) => void
     onRunComplete?: (score: number) => void
     onRunLose?: (score: number) => void
+    eventTarget?: EventTarget
   }
 
-  constructor(callbacks: { onScoreChange?: (score: number) => void; onRunComplete?: (score: number) => void; onRunLose?: (score: number) => void } = {}) {
+  constructor(callbacks: { onScoreChange?: (score: number) => void; onRunComplete?: (score: number) => void; onRunLose?: (score: number) => void; eventTarget?: EventTarget } = {}) {
     super('GameScene')
     this.callbacks = callbacks
+  }
+
+  private emitGameEvent(eventName: GameEventName, detail: Record<string, number | boolean | string>) {
+    this.game.events.emit(eventName, detail)
+    this.callbacks.eventTarget?.dispatchEvent(new CustomEvent(eventName, { detail }))
+  }
+
+  private readonly handleCommand = (event: Event) => {
+    const detail = (event as CustomEvent<{ type?: 'pause' | 'resume' }>).detail
+
+    if (detail?.type === 'pause') {
+      this.pauseGame()
+    }
+
+    if (detail?.type === 'resume') {
+      this.resumeGame()
+    }
+  }
+
+  public pauseGame() {
+    if (this.isGameOver || !this.physics?.world || this.physics.world.isPaused) {
+      return
+    }
+
+    this.physics.world.pause()
+  }
+
+  public resumeGame() {
+    if (this.isGameOver || !this.physics?.world || !this.physics.world?.isPaused) {
+      return
+    }
+
+    this.physics.world.resume()
   }
 
   private createWallMaze() {
     this.walls = this.physics.add.staticGroup()
 
-    for (const wallConfig of arena.wallSegments) {
+    for (const wallConfig of arenaConfig.wallSegments) {
       const wall = this.add.rectangle(
         wallConfig.x,
         wallConfig.y,
@@ -62,8 +137,29 @@ export class GameScene extends Phaser.Scene {
   }
 
   private finishRun() {
+    this.isGameOver = true
     this.physics.pause()
     this.scene.pause()
+  }
+
+  private triggerLose() {
+    if (this.isGameOver) {
+      return
+    }
+
+    this.emitGameEvent('game-lost', { score: this.score, timeRemaining: this.timeRemaining })
+    this.callbacks.onRunLose?.(this.score)
+    this.finishRun()
+  }
+
+  private triggerWin() {
+    if (this.isGameOver) {
+      return
+    }
+
+    this.emitGameEvent('game-won', { score: this.score, timeRemaining: this.timeRemaining })
+    this.callbacks.onRunComplete?.(this.score)
+    this.finishRun()
   }
 
   private isBlocked(x: number, y: number, width: number, height: number) {
@@ -171,8 +267,8 @@ export class GameScene extends Phaser.Scene {
 
   private getRouteAroundWall() {
     const cellSize = 20
-    const cols = Math.ceil(arena.width / cellSize)
-    const rows = Math.ceil(arena.height / cellSize)
+    const cols = Math.ceil(arenaConfig.width / cellSize)
+    const rows = Math.ceil(arenaConfig.height / cellSize)
 
     const start = {
       x: Math.round(this.guardian.x / cellSize),
@@ -284,37 +380,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   create() {
-    this.add.text(20, 20, 'Pocket Relic Run — Phaser is working', {
-      fontFamily: 'monospace',
-      fontSize: '20px',
-      color: '#ffffff',
-    })
-
-    this.tipText = this.add.text(
-      20,
-      52,
-      'Tip: if D feels dead, disable Vimium or add D to its ignore list.',
-      {
-        fontFamily: 'monospace',
-        fontSize: '12px',
-        color: '#d8d0f0',
-      },
-    )
-
-    this.time.delayedCall(20000, () => {
-      this.tweens.add({
-        targets: this.tipText,
-        alpha: 0,
-        duration: 800,
-        onComplete: () => {
-          this.tipText.destroy()
-        },
-      })
-    })
+    this.callbacks.eventTarget?.addEventListener('game-command', this.handleCommand)
 
     this.createWallMaze()
 
-    const playerSpawn = this.getSafeSpawnPosition(arena.playerX, arena.playerY, 24, 24)
+    const playerSpawn = this.getSafeSpawnPosition(arenaConfig.playerX, arenaConfig.playerY, 24, 24)
     this.player = this.add.rectangle(playerSpawn.x, playerSpawn.y, 24, 24, 0x4da6ff)
     this.physics.add.existing(this.player)
 
@@ -326,18 +396,25 @@ export class GameScene extends Phaser.Scene {
 
     this.physics.add.collider(this.player, this.walls)
 
-    const guardianSpawn = this.getSafeSpawnPosition(arena.guardianStart.x, arena.guardianStart.y, 26, 26)
+    const guardianSpawn = this.getSafeSpawnPosition(arenaConfig.guardianStart.x, arenaConfig.guardianStart.y, 26, 26)
     this.guardian = this.add.rectangle(guardianSpawn.x, guardianSpawn.y, 26, 26, 0xff3b30)
     this.physics.add.existing(this.guardian)
     const guardianBody = this.guardian.body as Phaser.Physics.Arcade.Body
     guardianBody.setCollideWorldBounds(true)
-    this.physics.add.collider(this.player, this.guardian, () => {
-      this.callbacks.onRunLose?.(this.score)
-      this.finishRun()
-    })
+    this.physics.add.collider(this.player, this.guardian, () => this.triggerLose())
     this.physics.add.collider(this.guardian, this.walls)
 
-    for (const shardPosition of arena.shardSpawns) {
+    const exitX = arenaConfig.exit.x
+    const exitY = arenaConfig.exit.y
+    this.exit = this.add.rectangle(exitX, exitY, 36, 36, 0x6a5acd)
+    this.physics.add.existing(this.exit, true)
+    this.physics.add.overlap(this.player, this.exit, () => {
+      if (this.score >= this.requiredShards) {
+        this.triggerWin()
+      }
+    })
+
+    for (const shardPosition of arenaConfig.shardSpawns) {
       const shard = createShard(this, shardPosition.x, shardPosition.y)
       this.shards.push(shard)
 
@@ -347,19 +424,40 @@ export class GameScene extends Phaser.Scene {
         this.shards = this.shards.filter((item) => item !== shard)
         this.score += 1
         this.callbacks.onScoreChange?.(this.score)
+        this.emitGameEvent('shard-collected', { score: this.score, total: this.maxScore })
 
-        if (this.score >= this.maxScore) {
-          this.callbacks.onRunComplete?.(this.score)
-          this.finishRun()
+        if (this.score >= this.requiredShards) {
+          this.exit.setFillStyle(0x41d17d)
         }
       })
     }
 
+    this.emitGameEvent('timer-changed', { timeRemaining: this.timeRemaining, totalTime: arenaConfig.timerSeconds })
     this.callbacks.onScoreChange?.(this.score)
   }
 
+  shutdown() {
+    this.callbacks.eventTarget?.removeEventListener('game-command', this.handleCommand)
+  }
+
   update() {
-    if (this.physics.world.isPaused || this.scene.isPaused()) {
+    if (this.physics.world.isPaused || this.scene.isPaused() || this.isGameOver) {
+      return
+    }
+
+    this.timeRemaining = Math.max(0, this.timeRemaining - this.game.loop.delta / 1000)
+    const nextTimerValue = Math.ceil(this.timeRemaining)
+
+    if (nextTimerValue !== this.lastEmittedTimer) {
+      this.lastEmittedTimer = nextTimerValue
+      this.emitGameEvent('timer-changed', {
+        timeRemaining: this.timeRemaining,
+        totalTime: arenaConfig.timerSeconds,
+      })
+    }
+
+    if (this.timeRemaining <= 0) {
+      this.triggerLose()
       return
     }
 
@@ -374,7 +472,7 @@ export class GameScene extends Phaser.Scene {
     const length = Math.hypot(x, y) || 1
     const body = this.player.body as Phaser.Physics.Arcade.Body
 
-    body.setVelocity((x / length) * arena.moveSpeed, (y / length) * arena.moveSpeed)
+    body.setVelocity((x / length) * arenaConfig.moveSpeed, (y / length) * arenaConfig.moveSpeed)
 
     const guardianBody = this.guardian.body as Phaser.Physics.Arcade.Body
     const { x: chaseX, y: chaseY } = this.findBestChaseDirection()

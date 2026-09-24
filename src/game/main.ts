@@ -2,10 +2,11 @@ import Phaser from 'phaser'
 
 import { GameScene } from './scenes/GameScene'
 
-type GameCallbacks = {
+export type GameCallbacks = {
   onScoreChange?: (score: number) => void
   onRunComplete?: (score: number) => void
   onRunLose?: (score: number) => void
+  eventTarget?: EventTarget
 }
 
 const gameConfig: Phaser.Types.Core.GameConfig = {
