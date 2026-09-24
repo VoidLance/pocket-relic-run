@@ -10,8 +10,8 @@ export function LoseScreen({ score, reason = 'guardian', onRestart }: LoseScreen
     : 'The guardian caught you'
 
   return (
-    <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-[#11101a]/65 backdrop-blur-[2px]">
-      <div className="pointer-events-auto rounded-2xl border border-red-400/30 bg-[#1e1633]/90 p-8 text-center shadow-2xl shadow-red-950/30">
+    <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-[#11101a]/65 backdrop-blur-[2px] animate-[fadeIn_0.25s_ease-out]">
+      <div className="pointer-events-auto rounded-2xl border border-red-400/30 bg-[#1e1633]/90 p-8 text-center shadow-2xl shadow-red-950/30 animate-[popIn_0.28s_cubic-bezier(0.16,1,0.3,1)]">
         <p className="text-xs font-semibold uppercase tracking-[0.35em] text-red-300">
           Run failed
         </p>

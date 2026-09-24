@@ -142,26 +142,30 @@ export class GameScene extends Phaser.Scene {
     this.scene.pause()
   }
 
-  private triggerPlayerImpact() {
+  private triggerPlayerImpact(kind: 'wall' | 'guardian' = 'wall') {
+    const shakeStrength = kind === 'guardian' ? 12 : 18
+
     this.tweens.add({
       targets: this.player,
-      x: { from: this.player.x - 8, to: this.player.x + 8 },
-      y: { from: this.player.y - 8, to: this.player.y + 8 },
-      duration: 90,
-      repeat: 3,
+      x: { from: this.player.x - shakeStrength, to: this.player.x + shakeStrength },
+      y: { from: this.player.y - shakeStrength, to: this.player.y + shakeStrength },
+      duration: kind === 'guardian' ? 120 : 180,
+      repeat: 2,
       yoyo: true,
       ease: 'Sine.easeInOut',
     })
 
-    this.tweens.add({
-      targets: this.guardian,
-      scaleX: 1.2,
-      scaleY: 1.2,
-      duration: 120,
-      yoyo: true,
-      repeat: 1,
-      ease: 'Back.easeOut',
-    })
+    if (kind === 'guardian') {
+      this.tweens.add({
+        targets: this.guardian,
+        scaleX: 1.25,
+        scaleY: 1.25,
+        duration: 150,
+        yoyo: true,
+        repeat: 1,
+        ease: 'Back.easeOut',
+      })
+    }
   }
 
   private triggerLose(reason: 'guardian' | 'timeout' = 'guardian') {
@@ -425,7 +429,9 @@ export class GameScene extends Phaser.Scene {
     this.cursors = this.input.keyboard!.createCursorKeys()
     this.keys = this.input.keyboard!.addKeys('W,A,S,D') as typeof this.keys
 
-    this.physics.add.collider(this.player, this.walls)
+    this.physics.add.collider(this.player, this.walls, () => {
+      this.triggerPlayerImpact('wall')
+    })
 
     const guardianSpawn = this.getSafeSpawnPosition(arenaConfig.guardianStart.x, arenaConfig.guardianStart.y, 26, 26)
     this.guardian = this.add.rectangle(guardianSpawn.x, guardianSpawn.y, 26, 26, 0xff3b30)
@@ -433,10 +439,12 @@ export class GameScene extends Phaser.Scene {
     const guardianBody = this.guardian.body as Phaser.Physics.Arcade.Body
     guardianBody.setCollideWorldBounds(true)
     this.physics.add.collider(this.player, this.guardian, () => {
-      this.triggerPlayerImpact()
+      this.triggerPlayerImpact('guardian')
       this.triggerLose()
     })
-    this.physics.add.collider(this.guardian, this.walls)
+    this.physics.add.collider(this.guardian, this.walls, () => {
+      this.triggerPlayerImpact('wall')
+    })
 
     const exitX = arenaConfig.exit.x
     const exitY = arenaConfig.exit.y
