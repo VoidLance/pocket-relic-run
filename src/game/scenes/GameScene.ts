@@ -386,6 +386,11 @@ export class GameScene extends Phaser.Scene {
   create() {
     this.callbacks.eventTarget?.addEventListener('game-command', this.handleCommand)
 
+    if (this.physics.world.debugGraphic) {
+      this.physics.world.debugGraphic.setVisible(false)
+      this.physics.world.debugGraphic.clear()
+    }
+
     this.createWallMaze()
 
     const playerSpawn = this.getSafeSpawnPosition(arenaConfig.playerX, arenaConfig.playerY, 24, 24)
