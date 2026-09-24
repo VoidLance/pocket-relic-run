@@ -429,7 +429,20 @@ export class GameScene extends Phaser.Scene {
 
       this.physics.add.overlap(this.player, shard, (_player, collectible) => {
         const activeShard = collectible as Phaser.GameObjects.Arc
-        activeShard.destroy()
+        this.physics.world.disable(activeShard)
+        this.tweens.killTweensOf(activeShard)
+
+        this.tweens.add({
+          targets: activeShard,
+          alpha: 0,
+          scale: 1.4,
+          duration: 180,
+          ease: 'Cubic.easeOut',
+          onComplete: () => {
+            activeShard.destroy()
+          },
+        })
+
         this.shards = this.shards.filter((item) => item !== shard)
         this.score += 1
         this.callbacks.onScoreChange?.(this.score)
