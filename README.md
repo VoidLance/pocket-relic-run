@@ -1,29 +1,47 @@
-# Create T3 App
+# Pocket Relic Run
 
-This is a [T3 Stack](https://create.t3.gg/) project bootstrapped with `create-t3-app`.
+Pocket Relic Run is a small Phaser-based stealth maze game built with Next.js and the T3 stack. You play as a runner trying to collect relic shards, reach the exit, and avoid a roaming guardian that patrols and chases through the maze.
 
-## What's next? How do I make an app with this?
+## Gameplay
 
-We try to keep this project as simple as possible, so you can start with just the scaffolding we set up for you, and add additional things later when they become necessary.
+- Move with WASD or the arrow keys.
+- Collect enough relic shards to unlock the exit.
+- Reach the glowing exit portal to win.
+- Avoid the guardian and the countdown timer, or you lose.
 
-If you are not familiar with the different technologies used in this project, please refer to the respective docs. If you still are in the wind, please join our [Discord](https://t3.gg/discord) and ask for help.
+## Project structure
 
-- [Next.js](https://nextjs.org)
-- [NextAuth.js](https://next-auth.js.org)
-- [Prisma](https://prisma.io)
-- [Drizzle](https://orm.drizzle.team)
-- [Tailwind CSS](https://tailwindcss.com)
-- [tRPC](https://trpc.io)
+- `src/game/` - Phaser scene, gameplay logic, and arena setup
+- `src/components/` - HUD, start screen, and result overlays
+- `src/app/` - Next.js app shell and route layout
+- `src/server/` and `src/trpc/` - server and tRPC configuration
 
-## Learn More
+## Tech stack
 
-To learn more about the [T3 Stack](https://create.t3.gg/), take a look at the following resources:
+- Next.js
+- TypeScript
+- Phaser 4
+- Tailwind CSS
+- tRPC
 
-- [Documentation](https://create.t3.gg/)
-- [Learn the T3 Stack](https://create.t3.gg/en/faq#what-learning-resources-are-currently-available) — Check out these awesome tutorials
+## Development
 
-You can check out the [create-t3-app GitHub repository](https://github.com/t3-oss/create-t3-app) — your feedback and contributions are welcome!
+Install dependencies:
 
-## How do I deploy this?
+npm install
 
-Follow our deployment guides for [Vercel](https://create.t3.gg/en/deployment/vercel), [Netlify](https://create.t3.gg/en/deployment/netlify) and [Docker](https://create.t3.gg/en/deployment/docker) for more information.
+Start the app in development mode:
+
+npm run dev
+
+Build for production:
+
+npm run build
+
+Run a type check:
+
+npm run typecheck
+
+## Notes
+
+This project is intentionally lightweight and focused on a single playable loop, with the game state and UI coordinated between the Phaser scene and the surrounding Next.js app.
