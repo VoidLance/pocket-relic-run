@@ -142,6 +142,28 @@ export class GameScene extends Phaser.Scene {
     this.scene.pause()
   }
 
+  private triggerPlayerImpact() {
+    this.tweens.add({
+      targets: this.player,
+      x: { from: this.player.x - 8, to: this.player.x + 8 },
+      y: { from: this.player.y - 8, to: this.player.y + 8 },
+      duration: 90,
+      repeat: 3,
+      yoyo: true,
+      ease: 'Sine.easeInOut',
+    })
+
+    this.tweens.add({
+      targets: this.guardian,
+      scaleX: 1.2,
+      scaleY: 1.2,
+      duration: 120,
+      yoyo: true,
+      repeat: 1,
+      ease: 'Back.easeOut',
+    })
+  }
+
   private triggerLose(reason: 'guardian' | 'timeout' = 'guardian') {
     if (this.isGameOver) {
       return
@@ -410,7 +432,10 @@ export class GameScene extends Phaser.Scene {
     this.physics.add.existing(this.guardian)
     const guardianBody = this.guardian.body as Phaser.Physics.Arcade.Body
     guardianBody.setCollideWorldBounds(true)
-    this.physics.add.collider(this.player, this.guardian, () => this.triggerLose())
+    this.physics.add.collider(this.player, this.guardian, () => {
+      this.triggerPlayerImpact()
+      this.triggerLose()
+    })
     this.physics.add.collider(this.guardian, this.walls)
 
     const exitX = arenaConfig.exit.x
@@ -435,8 +460,10 @@ export class GameScene extends Phaser.Scene {
         this.tweens.add({
           targets: activeShard,
           alpha: 0,
-          scale: 1.4,
-          duration: 180,
+          scale: 1.9,
+          rotation: activeShard.rotation + Math.PI * 2,
+          y: activeShard.y - 22,
+          duration: 220,
           ease: 'Cubic.easeOut',
           onComplete: () => {
             activeShard.destroy()
@@ -450,6 +477,14 @@ export class GameScene extends Phaser.Scene {
 
         if (this.score >= this.requiredShards) {
           this.exit.setFillStyle(0x41d17d)
+          this.tweens.add({
+            targets: this.exit,
+            scale: { from: 1, to: 1.35 },
+            duration: 300,
+            yoyo: true,
+            repeat: 2,
+            ease: 'Sine.easeInOut',
+          })
         }
       })
     }
@@ -499,6 +534,18 @@ export class GameScene extends Phaser.Scene {
     const guardianBody = this.guardian.body as Phaser.Physics.Arcade.Body
     const { x: chaseX, y: chaseY } = this.findBestChaseDirection()
     const chaseLength = Math.hypot(chaseX, chaseY)
+
+    if (Math.hypot(this.player.x - this.guardian.x, this.player.y - this.guardian.y) < 150) {
+      this.tweens.add({
+        targets: this.guardian,
+        scaleX: { from: 1, to: 1.16 },
+        scaleY: { from: 1, to: 1.16 },
+        duration: 120,
+        yoyo: true,
+        repeat: 1,
+        ease: 'Sine.easeInOut',
+      })
+    }
 
     if (chaseLength < 0.0001) {
       const dx = this.player.x - this.guardian.x
