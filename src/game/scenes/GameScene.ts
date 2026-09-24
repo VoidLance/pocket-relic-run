@@ -143,26 +143,29 @@ export class GameScene extends Phaser.Scene {
   }
 
   private triggerPlayerImpact(kind: 'wall' | 'guardian' = 'wall') {
-    const shakeStrength = kind === 'guardian' ? 12 : 18
+    const shakeStrength = kind === 'guardian' ? 10 : 14
+
+    this.tweens.killTweensOf(this.player)
 
     this.tweens.add({
       targets: this.player,
       x: { from: this.player.x - shakeStrength, to: this.player.x + shakeStrength },
       y: { from: this.player.y - shakeStrength, to: this.player.y + shakeStrength },
-      duration: kind === 'guardian' ? 120 : 180,
-      repeat: 2,
+      duration: kind === 'guardian' ? 90 : 120,
       yoyo: true,
+      repeat: 0,
       ease: 'Sine.easeInOut',
     })
 
     if (kind === 'guardian') {
+      this.tweens.killTweensOf(this.guardian)
       this.tweens.add({
         targets: this.guardian,
-        scaleX: 1.25,
-        scaleY: 1.25,
-        duration: 150,
+        scaleX: 1.18,
+        scaleY: 1.18,
+        duration: 110,
         yoyo: true,
-        repeat: 1,
+        repeat: 0,
         ease: 'Back.easeOut',
       })
     }
