@@ -89,7 +89,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   public pauseGame() {
-    if (this.isGameOver || !this.physics?.world || this.physics.world.isPaused) {
+    if (this.isGameOver || this.physics?.world?.isPaused) {
       return
     }
 
@@ -97,7 +97,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   public resumeGame() {
-    if (this.isGameOver || !this.physics?.world || !this.physics.world?.isPaused) {
+    if (this.isGameOver || !this.physics?.world?.isPaused) {
       return
     }
 
