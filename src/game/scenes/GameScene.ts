@@ -92,7 +92,7 @@ export class GameScene extends Phaser.Scene {
     S: Phaser.Input.Keyboard.Key
   }
   private exit!: Phaser.GameObjects.Rectangle
-  private shards: Array<Phaser.GameObjects.Arc & Phaser.Physics.Arcade.Body> = []
+  private shards: Array<Phaser.GameObjects.Sprite & Phaser.Physics.Arcade.Body> = []
   private score = 0
   private timeRemaining: number = this.arenaConfig.timerSeconds
   private lastEmittedTimer = Math.ceil(this.arenaConfig.timerSeconds)
@@ -616,6 +616,12 @@ export class GameScene extends Phaser.Scene {
       margin: 0,
       spacing: 0,
     })
+    this.load.spritesheet('relic-sprite', '/Relic.png', {
+      frameWidth: 32,
+      frameHeight: 32,
+      margin: 0,
+      spacing: 0,
+    })
   }
 
   create() {
@@ -717,9 +723,14 @@ export class GameScene extends Phaser.Scene {
       this.shards.push(shard)
 
       this.physics.add.overlap(this.player, shard, (_player, collectible) => {
-        const activeShard = collectible as Phaser.GameObjects.Arc
+        const activeShard = collectible as Phaser.GameObjects.Sprite
+        const activeGlow = activeShard.getData('glow') as Phaser.GameObjects.Sprite | undefined
+
         this.physics.world.disable(activeShard)
         this.tweens.killTweensOf(activeShard)
+        if (activeGlow) {
+          this.tweens.killTweensOf(activeGlow)
+        }
 
         this.tweens.add({
           targets: activeShard,
@@ -733,6 +744,19 @@ export class GameScene extends Phaser.Scene {
             activeShard.destroy()
           },
         })
+
+        if (activeGlow) {
+          this.tweens.add({
+            targets: activeGlow,
+            alpha: 0,
+            scale: 2.8,
+            duration: 120,
+            ease: 'Cubic.easeOut',
+            onComplete: () => {
+              activeGlow.destroy()
+            },
+          })
+        }
 
         this.ensureAudio()
         this.playTone(440, 0.08, 0.05, 'triangle')
