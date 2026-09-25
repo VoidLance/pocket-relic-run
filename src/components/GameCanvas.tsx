@@ -18,7 +18,7 @@ export function GameCanvas() {
     ((parent: HTMLElement, callbacks?: {
       onScoreChange?: (score: number) => void
       eventTarget?: EventTarget
-    }, initialLevelIndex?: number, initialCumulativeScore?: number) => { destroy: (removeCanvas: boolean) => void }) | null
+    }, initialLevelIndex?: number, initialCumulativeScore?: number) => Phaser.Game) | null
   >(null)
   const [started, setStarted] = useState(false)
   const [finished, setFinished] = useState(false)
@@ -37,7 +37,7 @@ export function GameCanvas() {
     levelIndex: number
   } | null>(null)
   const [isPaused, setIsPaused] = useState(false)
-  const gameRef = useRef<{ destroy: (removeCanvas: boolean) => void } | null>(null)
+  const gameRef = useRef<Phaser.Game | null>(null)
   const currentLevelIndexRef = useRef(0)
   const totalScoreRef = useRef(0)
   const scoreRef = useRef(0)
@@ -95,6 +95,10 @@ export function GameCanvas() {
       nextLevelIndex,
       runningTotal,
     )
+
+    return gameRef.current?.scene?.getScene('GameScene') as
+      | { pauseGame?: () => void; resumeGame?: () => void }
+      | undefined
   }
 
   useEffect(() => {
@@ -178,9 +182,6 @@ export function GameCanvas() {
       }
 
       gameFactoryRef.current = createGame
-      if (containerRef.current) {
-        createGameInstance()
-      }
     }).catch((error: unknown) => {
       console.error('Failed to load the game', error)
     })
@@ -209,7 +210,8 @@ export function GameCanvas() {
     timeRemainingRef.current = 60
     setIsPaused(false)
     setStarted(true)
-    createGameInstance(0, 0)
+    const scene = createGameInstance(0, 0)
+    scene?.resumeGame?.()
   }
 
   const continueLevel = () => {
@@ -224,7 +226,6 @@ export function GameCanvas() {
   }
 
   const restartGame = () => {
-    sendGameCommand('resume')
     startRun()
   }
 

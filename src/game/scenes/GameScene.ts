@@ -80,7 +80,7 @@ const levelConfigs = [levelOneArena, levelTwoArena] as const
 type GameEventName = 'shard-collected' | 'timer-changed' | 'game-won' | 'game-lost'
 
 export class GameScene extends Phaser.Scene {
-  private player!: Phaser.GameObjects.Rectangle
+  private player!: Phaser.GameObjects.Sprite
   private guardian!: Phaser.GameObjects.Rectangle
   private secondGuardian?: Phaser.GameObjects.Rectangle
   private walls!: Phaser.Physics.Arcade.StaticGroup
@@ -109,6 +109,7 @@ export class GameScene extends Phaser.Scene {
   private readonly dashStrength = 520
   private isRecoveringFromImpact = false
   private impactRecoveryMs = 0
+  private isSimulationPaused = false
   private currentLevelIndex = 0
   private cumulativeScore = 0
   private readonly maxScore = levelConfigs[0].shardSpawns.length
@@ -163,19 +164,23 @@ export class GameScene extends Phaser.Scene {
   }
 
   public pauseGame() {
-    if (this.isGameOver || this.physics?.world?.isPaused) {
+    if (this.isGameOver) {
       return
     }
 
+    this.isSimulationPaused = true
     this.physics?.world?.pause()
+    this.player?.anims?.pause()
   }
 
   public resumeGame() {
-    if (this.isGameOver || !this.physics?.world?.isPaused) {
+    if (this.isGameOver) {
       return
     }
 
+    this.isSimulationPaused = false
     this.physics?.world?.resume()
+    this.player?.anims?.resume()
   }
 
   private createWallMaze() {
@@ -604,6 +609,15 @@ export class GameScene extends Phaser.Scene {
     return this.findGapDirection()
   }
 
+  preload() {
+    this.load.spritesheet('player-sprite', '/Player.png', {
+      frameWidth: 32,
+      frameHeight: 32,
+      margin: 0,
+      spacing: 0,
+    })
+  }
+
   create() {
     const data = this.scene.settings.data as { levelIndex?: number } | undefined
     if (typeof data?.levelIndex === 'number' && data.levelIndex >= 0) {
@@ -624,15 +638,29 @@ export class GameScene extends Phaser.Scene {
       this.physics.world.debugGraphic.clear()
     }
 
+    this.isSimulationPaused = false
+
     this.createWallMaze()
 
     const playerSpawn = this.getSafeSpawnPosition(this.arenaConfig.playerX, this.arenaConfig.playerY, 24, 24)
-    this.player = this.add.rectangle(playerSpawn.x, playerSpawn.y, 24, 24, 0x4da6ff)
+    this.player = this.add.sprite(playerSpawn.x, playerSpawn.y, 'player-sprite', 0)
+    this.player.setDisplaySize(24, 24)
+    this.player.setOrigin(0.5)
     this.physics.add.existing(this.player)
     this.lastSafePlayerPosition = { x: playerSpawn.x, y: playerSpawn.y }
 
+    this.anims.create({
+      key: 'player-run',
+      frames: this.anims.generateFrameNumbers('player-sprite', { start: 0, end: 2 }),
+      frameRate: 10,
+      repeat: -1,
+    })
+
     const body = this.player.body as Phaser.Physics.Arcade.Body
+    body.setSize(20, 20)
+    body.setOffset(6, 6)
     body.setCollideWorldBounds(true)
+    this.player.play('player-run', true)
 
     this.cursors = this.input.keyboard!.createCursorKeys()
     this.keys = this.input.keyboard!.addKeys('W,A,S,D') as {
@@ -752,7 +780,7 @@ export class GameScene extends Phaser.Scene {
       this.dashTimer = Math.max(0, this.dashTimer - this.game.loop.delta)
     }
 
-    if (this.physics.world.isPaused || this.scene.isPaused() || this.isGameOver) {
+    if (this.isSimulationPaused || this.isGameOver) {
       return
     }
 
@@ -788,6 +816,12 @@ export class GameScene extends Phaser.Scene {
         x: x / length,
         y: y / length,
       }
+      this.player.play('player-run', true)
+      this.player.setFlipX(this.lastMoveDirection.x < 0)
+    } else {
+      this.player.anims.stop()
+      this.player.setFrame(0)
+      this.player.setFlipX(false)
     }
 
     this.lastSafePlayerPosition = { x: this.player.x, y: this.player.y }
