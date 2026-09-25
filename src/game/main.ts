@@ -14,6 +14,9 @@ const gameConfig: Phaser.Types.Core.GameConfig = {
   width: 960,
   height: 540,
   backgroundColor: '#1e1633',
+  audio: {
+    noAudio: true,
+  },
   physics: {
     default: 'arcade',
     arcade: {

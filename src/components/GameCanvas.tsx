@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react'
 
+import { api } from '~/trpc/react'
+
 import { Hud } from './Hud'
 import { LoseScreen } from './LoseScreen'
 import { ResultScreen } from './ResultScreen'
@@ -15,8 +17,6 @@ export function GameCanvas() {
   const gameFactoryRef = useRef<
     ((parent: HTMLElement, callbacks?: {
       onScoreChange?: (score: number) => void
-      onRunComplete?: (score: number) => void
-      onRunLose?: (score: number) => void
       eventTarget?: EventTarget
     }) => { destroy: (removeCanvas: boolean) => void }) | null
   >(null)
@@ -26,8 +26,32 @@ export function GameCanvas() {
   const [lostReason, setLostReason] = useState<'guardian' | 'timeout'>('guardian')
   const [score, setScore] = useState(0)
   const [timeRemaining, setTimeRemaining] = useState(60)
+  const [completedRelics, setCompletedRelics] = useState(0)
   const [isPaused, setIsPaused] = useState(false)
   const gameRef = useRef<{ destroy: (removeCanvas: boolean) => void } | null>(null)
+  const scoreRef = useRef(0)
+  const timeRemainingRef = useRef(60)
+  const submitScoreRef = useRef<((input: { score: number }) => void) | null>(null)
+  const utils = api.useUtils()
+  const submitScore = api.game.submitScore.useMutation({
+    onSuccess: (result) => {
+      utils.game.getBest.setData(undefined, {
+        bestScore: result.bestScore,
+        recentRuns: result.recentRuns,
+      })
+    },
+  })
+  submitScoreRef.current = submitScore.mutate
+  const { data: bestData } = api.game.getBest.useQuery()
+  const bestScore = bestData?.bestScore ?? 0
+
+  useEffect(() => {
+    scoreRef.current = score
+  }, [score])
+
+  useEffect(() => {
+    timeRemainingRef.current = timeRemaining
+  }, [timeRemaining])
 
   const sendGameCommand = (type: GameCommandType) => {
     eventTargetRef.current.dispatchEvent(
@@ -46,8 +70,6 @@ export function GameCanvas() {
     gameRef.current = gameFactoryRef.current(containerRef.current, {
       eventTarget: eventTargetRef.current,
       onScoreChange: (nextScore) => setScore(nextScore),
-      onRunComplete: () => setFinished(true),
-      onRunLose: () => setLost(true),
     })
   }
 
@@ -69,10 +91,18 @@ export function GameCanvas() {
       }
     }
 
-    const handleGameWon = () => {
+    const handleGameWon = (event: Event) => {
+      const detail = (event as CustomEvent<{ score?: number; relics?: number; timeRemaining?: number }>).detail
+      const nextScore = typeof detail?.score === 'number' ? detail.score : scoreRef.current
+      const nextTimeRemaining = typeof detail?.timeRemaining === 'number' ? detail.timeRemaining : timeRemainingRef.current
+
+      setCompletedRelics(typeof detail?.relics === 'number' ? detail.relics : scoreRef.current)
+      setTimeRemaining(nextTimeRemaining)
+      setScore(nextScore)
       setFinished(true)
       setLost(false)
       setIsPaused(false)
+      submitScoreRef.current?.({ score: nextScore })
     }
 
     const handleGameLost = (event: Event) => {
@@ -112,11 +142,14 @@ export function GameCanvas() {
   }, [])
 
   const startRun = () => {
+    scoreRef.current = 0
     setScore(0)
     setTimeRemaining(60)
     setFinished(false)
     setLost(false)
     setLostReason('guardian')
+    setCompletedRelics(0)
+    timeRemainingRef.current = 60
     setIsPaused(false)
     setStarted(true)
     createGameInstance()
@@ -135,6 +168,10 @@ export function GameCanvas() {
         className="relative min-h-135 w-full [&_canvas]:block [&_canvas]:h-auto [&_canvas]:w-full"
       />
 
+      <div className="pointer-events-none absolute left-4 top-4 z-10 rounded-full border border-violet-300/30 bg-[#1e1633]/80 px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-violet-100 shadow-lg shadow-black/25 backdrop-blur-sm">
+        Best: {bestScore}
+      </div>
+
       {started && !finished && !lost && (
         <Hud
           score={score}
@@ -152,7 +189,13 @@ export function GameCanvas() {
         />
       )}
       {!started && <StartScreen onStart={startRun} />}
-      {finished && <ResultScreen score={score} onRestart={restartGame} />}
+      {finished && (
+        <ResultScreen
+          relics={completedRelics}
+          timeRemaining={timeRemaining}
+          onRestart={restartGame}
+        />
+      )}
       {lost && !finished && <LoseScreen score={score} reason={lostReason} onRestart={restartGame} />}
     </div>
   )

@@ -56,8 +56,15 @@ export class GameScene extends Phaser.Scene {
   private score = 0
   private timeRemaining: number = arenaConfig.timerSeconds
   private lastEmittedTimer = Math.ceil(arenaConfig.timerSeconds)
+  private lastSafePlayerPosition: { x: number; y: number } = {
+    x: arenaConfig.playerX,
+    y: arenaConfig.playerY,
+  }
+  private isRecoveringFromImpact = false
+  private impactRecoveryMs = 0
   private readonly maxScore = arenaConfig.shardSpawns.length
   private readonly requiredShards = 3
+  private readonly timeBonusMultiplier = 1
   private isGameOver = false
   private readonly callbacks: {
     onScoreChange?: (score: number) => void
@@ -79,11 +86,15 @@ export class GameScene extends Phaser.Scene {
   private readonly handleCommand = (event: Event) => {
     const detail = (event as CustomEvent<{ type?: 'pause' | 'resume' }>).detail
 
-    if (detail?.type === 'pause') {
+    if (!detail || typeof detail.type !== 'string') {
+      return
+    }
+
+    if (detail.type === 'pause') {
       this.pauseGame()
     }
 
-    if (detail?.type === 'resume') {
+    if (detail.type === 'resume') {
       this.resumeGame()
     }
   }
@@ -93,7 +104,7 @@ export class GameScene extends Phaser.Scene {
       return
     }
 
-    this.physics.world.pause()
+    this.physics?.world?.pause()
   }
 
   public resumeGame() {
@@ -101,7 +112,7 @@ export class GameScene extends Phaser.Scene {
       return
     }
 
-    this.physics.world.resume()
+    this.physics?.world?.resume()
   }
 
   private createWallMaze() {
@@ -143,19 +154,22 @@ export class GameScene extends Phaser.Scene {
   }
 
   private triggerPlayerImpact(kind: 'wall' | 'guardian' = 'wall') {
-    const shakeStrength = kind === 'guardian' ? 10 : 14
+    if (this.isRecoveringFromImpact) {
+      return
+    }
 
-    this.tweens.killTweensOf(this.player)
+    this.isRecoveringFromImpact = true
+    this.impactRecoveryMs = 150
 
-    this.tweens.add({
-      targets: this.player,
-      x: { from: this.player.x - shakeStrength, to: this.player.x + shakeStrength },
-      y: { from: this.player.y - shakeStrength, to: this.player.y + shakeStrength },
-      duration: kind === 'guardian' ? 90 : 120,
-      yoyo: true,
-      repeat: 0,
-      ease: 'Sine.easeInOut',
-    })
+    const body = this.player.body as Phaser.Physics.Arcade.Body | undefined
+
+    if (body) {
+      body.stop()
+      body.reset(this.lastSafePlayerPosition.x, this.lastSafePlayerPosition.y)
+    } else {
+      this.player.x = this.lastSafePlayerPosition.x
+      this.player.y = this.lastSafePlayerPosition.y
+    }
 
     if (kind === 'guardian') {
       this.tweens.killTweensOf(this.guardian)
@@ -185,13 +199,24 @@ export class GameScene extends Phaser.Scene {
     this.finishRun()
   }
 
+  private getRunScore() {
+    const relicScore = this.score
+    const timeBonus = Math.max(0, Math.ceil(this.timeRemaining)) * this.timeBonusMultiplier
+    return relicScore + timeBonus
+  }
+
   private triggerWin() {
     if (this.isGameOver) {
       return
     }
 
-    this.emitGameEvent('game-won', { score: this.score, timeRemaining: this.timeRemaining })
-    this.callbacks.onRunComplete?.(this.score)
+    const finalScore = this.getRunScore()
+    this.emitGameEvent('game-won', {
+      score: finalScore,
+      relics: this.score,
+      timeRemaining: this.timeRemaining,
+    })
+    this.callbacks.onRunComplete?.(finalScore)
     this.finishRun()
   }
 
@@ -425,6 +450,7 @@ export class GameScene extends Phaser.Scene {
     const playerSpawn = this.getSafeSpawnPosition(arenaConfig.playerX, arenaConfig.playerY, 24, 24)
     this.player = this.add.rectangle(playerSpawn.x, playerSpawn.y, 24, 24, 0x4da6ff)
     this.physics.add.existing(this.player)
+    this.lastSafePlayerPosition = { x: playerSpawn.x, y: playerSpawn.y }
 
     const body = this.player.body as Phaser.Physics.Arcade.Body
     body.setCollideWorldBounds(true)
@@ -509,6 +535,13 @@ export class GameScene extends Phaser.Scene {
   }
 
   update() {
+    if (this.isRecoveringFromImpact) {
+      this.impactRecoveryMs = Math.max(0, this.impactRecoveryMs - this.game.loop.delta)
+      if (this.impactRecoveryMs === 0) {
+        this.isRecoveringFromImpact = false
+      }
+    }
+
     if (this.physics.world.isPaused || this.scene.isPaused() || this.isGameOver) {
       return
     }
@@ -540,6 +573,7 @@ export class GameScene extends Phaser.Scene {
     const length = Math.hypot(x, y) || 1
     const body = this.player.body as Phaser.Physics.Arcade.Body
 
+    this.lastSafePlayerPosition = { x: this.player.x, y: this.player.y }
     body.setVelocity((x / length) * arenaConfig.moveSpeed, (y / length) * arenaConfig.moveSpeed)
 
     const guardianBody = this.guardian.body as Phaser.Physics.Arcade.Body
