@@ -18,17 +18,28 @@ export function GameCanvas() {
     ((parent: HTMLElement, callbacks?: {
       onScoreChange?: (score: number) => void
       eventTarget?: EventTarget
-    }) => { destroy: (removeCanvas: boolean) => void }) | null
+    }, initialLevelIndex?: number, initialCumulativeScore?: number) => { destroy: (removeCanvas: boolean) => void }) | null
   >(null)
   const [started, setStarted] = useState(false)
   const [finished, setFinished] = useState(false)
   const [lost, setLost] = useState(false)
   const [lostReason, setLostReason] = useState<'guardian' | 'timeout'>('guardian')
   const [score, setScore] = useState(0)
+  const [totalScore, setTotalScore] = useState(0)
   const [timeRemaining, setTimeRemaining] = useState(60)
   const [completedRelics, setCompletedRelics] = useState(0)
+  const [currentLevelIndex, setCurrentLevelIndex] = useState(0)
+  const [levelSummary, setLevelSummary] = useState<{
+    score: number
+    relics: number
+    timeRemaining: number
+    totalScore: number
+    levelIndex: number
+  } | null>(null)
   const [isPaused, setIsPaused] = useState(false)
   const gameRef = useRef<{ destroy: (removeCanvas: boolean) => void } | null>(null)
+  const currentLevelIndexRef = useRef(0)
+  const totalScoreRef = useRef(0)
   const scoreRef = useRef(0)
   const timeRemainingRef = useRef(60)
   const submitScoreRef = useRef<((input: { score: number }) => void) | null>(null)
@@ -53,6 +64,14 @@ export function GameCanvas() {
     timeRemainingRef.current = timeRemaining
   }, [timeRemaining])
 
+  useEffect(() => {
+    currentLevelIndexRef.current = currentLevelIndex
+  }, [currentLevelIndex])
+
+  useEffect(() => {
+    totalScoreRef.current = totalScore
+  }, [totalScore])
+
   const sendGameCommand = (type: GameCommandType) => {
     eventTargetRef.current.dispatchEvent(
       new CustomEvent('game-command', {
@@ -61,16 +80,21 @@ export function GameCanvas() {
     )
   }
 
-  const createGameInstance = () => {
+  const createGameInstance = (nextLevelIndex = 0, runningTotal = 0) => {
     if (!containerRef.current || !gameFactoryRef.current) {
       return
     }
 
     gameRef.current?.destroy(true)
-    gameRef.current = gameFactoryRef.current(containerRef.current, {
-      eventTarget: eventTargetRef.current,
-      onScoreChange: (nextScore) => setScore(nextScore),
-    })
+    gameRef.current = gameFactoryRef.current(
+      containerRef.current,
+      {
+        eventTarget: eventTargetRef.current,
+        onScoreChange: (nextScore) => setScore(nextScore),
+      },
+      nextLevelIndex,
+      runningTotal,
+    )
   }
 
   useEffect(() => {
@@ -92,17 +116,47 @@ export function GameCanvas() {
     }
 
     const handleGameWon = (event: Event) => {
-      const detail = (event as CustomEvent<{ score?: number; relics?: number; timeRemaining?: number }>).detail
+      const detail = (event as CustomEvent<{
+        score?: number
+        totalScore?: number
+        relics?: number
+        timeRemaining?: number
+        levelIndex?: number
+        isFinalLevel?: boolean
+      }>).detail
       const nextScore = typeof detail?.score === 'number' ? detail.score : scoreRef.current
       const nextTimeRemaining = typeof detail?.timeRemaining === 'number' ? detail.timeRemaining : timeRemainingRef.current
+      const nextTotalScore = typeof detail?.totalScore === 'number' ? detail.totalScore : totalScoreRef.current
+      const levelIndex = typeof detail?.levelIndex === 'number' ? detail.levelIndex : currentLevelIndexRef.current
+      const isFinalLevel = detail?.isFinalLevel === true
 
       setCompletedRelics(typeof detail?.relics === 'number' ? detail.relics : scoreRef.current)
       setTimeRemaining(nextTimeRemaining)
       setScore(nextScore)
+      setTotalScore(nextTotalScore)
+      setCurrentLevelIndex(levelIndex)
+
+      if (!isFinalLevel) {
+        gameRef.current?.destroy(true)
+        gameRef.current = null
+        setLevelSummary({
+          score: nextScore,
+          relics: typeof detail?.relics === 'number' ? detail.relics : scoreRef.current,
+          timeRemaining: nextTimeRemaining,
+          totalScore: nextTotalScore,
+          levelIndex,
+        })
+        setFinished(false)
+        setLost(false)
+        setIsPaused(false)
+        return
+      }
+
+      setLevelSummary(null)
       setFinished(true)
       setLost(false)
       setIsPaused(false)
-      submitScoreRef.current?.({ score: nextScore })
+      submitScoreRef.current?.({ score: nextTotalScore })
     }
 
     const handleGameLost = (event: Event) => {
@@ -144,15 +198,29 @@ export function GameCanvas() {
   const startRun = () => {
     scoreRef.current = 0
     setScore(0)
+    setTotalScore(0)
     setTimeRemaining(60)
     setFinished(false)
     setLost(false)
+    setLevelSummary(null)
     setLostReason('guardian')
     setCompletedRelics(0)
+    setCurrentLevelIndex(0)
     timeRemainingRef.current = 60
     setIsPaused(false)
     setStarted(true)
-    createGameInstance()
+    createGameInstance(0, 0)
+  }
+
+  const continueLevel = () => {
+    const nextLevelIndex = (levelSummary?.levelIndex ?? currentLevelIndexRef.current) + 1
+    setLevelSummary(null)
+    setFinished(false)
+    setLost(false)
+    setIsPaused(false)
+    setCurrentLevelIndex(nextLevelIndex)
+    currentLevelIndexRef.current = nextLevelIndex
+    createGameInstance(nextLevelIndex, totalScoreRef.current)
   }
 
   const restartGame = () => {
@@ -172,7 +240,7 @@ export function GameCanvas() {
         Best: {bestScore}
       </div>
 
-      {started && !finished && !lost && (
+      {started && !finished && !lost && !levelSummary && (
         <Hud
           score={score}
           timer={timeRemaining}
@@ -189,10 +257,23 @@ export function GameCanvas() {
         />
       )}
       {!started && <StartScreen onStart={startRun} />}
+      {levelSummary && (
+        <ResultScreen
+          relics={levelSummary.relics}
+          timeRemaining={levelSummary.timeRemaining}
+          totalScore={levelSummary.totalScore}
+          title="Level complete"
+          buttonLabel="Continue"
+          onContinue={continueLevel}
+        />
+      )}
       {finished && (
         <ResultScreen
           relics={completedRelics}
           timeRemaining={timeRemaining}
+          totalScore={totalScore}
+          title="Run complete"
+          buttonLabel="Play again"
           onRestart={restartGame}
         />
       )}

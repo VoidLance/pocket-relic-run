@@ -2,7 +2,7 @@ import Phaser from 'phaser'
 
 import { createShard } from '../systems/pickups'
 
-const arenaConfig = {
+const levelOneArena = {
   width: 960,
   height: 540,
   background: '#1e1633',
@@ -38,11 +38,51 @@ const arenaConfig = {
   shardRadius: 10,
 } as const
 
+const levelTwoArena = {
+  width: 960,
+  height: 540,
+  background: '#1e1633',
+  playerX: 70,
+  playerY: 470,
+  moveSpeed: 190,
+  timerSeconds: 70,
+  guardianStart: { x: 820, y: 110 },
+  exit: { x: 870, y: 70 },
+  wallSegments: [
+    { x: 200, y: 120, width: 170, height: 18 },
+    { x: 480, y: 120, width: 200, height: 18 },
+    { x: 760, y: 120, width: 140, height: 18 },
+    { x: 260, y: 210, width: 18, height: 180 },
+    { x: 520, y: 210, width: 18, height: 210 },
+    { x: 710, y: 210, width: 18, height: 180 },
+    { x: 150, y: 300, width: 260, height: 18 },
+    { x: 420, y: 300, width: 210, height: 18 },
+    { x: 690, y: 300, width: 210, height: 18 },
+    { x: 180, y: 430, width: 18, height: 100 },
+    { x: 420, y: 430, width: 18, height: 100 },
+    { x: 760, y: 430, width: 18, height: 100 },
+    { x: 120, y: 470, width: 220, height: 18 },
+    { x: 510, y: 470, width: 190, height: 18 },
+    { x: 790, y: 470, width: 130, height: 18 },
+  ],
+  shardSpawns: [
+    { x: 220, y: 180 },
+    { x: 770, y: 240 },
+    { x: 310, y: 460 },
+    { x: 640, y: 430 },
+    { x: 420, y: 360 },
+  ],
+  shardRadius: 10,
+} as const
+
+const levelConfigs = [levelOneArena, levelTwoArena] as const
+
 type GameEventName = 'shard-collected' | 'timer-changed' | 'game-won' | 'game-lost'
 
 export class GameScene extends Phaser.Scene {
   private player!: Phaser.GameObjects.Rectangle
   private guardian!: Phaser.GameObjects.Rectangle
+  private secondGuardian?: Phaser.GameObjects.Rectangle
   private walls!: Phaser.Physics.Arcade.StaticGroup
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys
   private keys!: {
@@ -54,18 +94,31 @@ export class GameScene extends Phaser.Scene {
   private exit!: Phaser.GameObjects.Rectangle
   private shards: Array<Phaser.GameObjects.Arc & Phaser.Physics.Arcade.Body> = []
   private score = 0
-  private timeRemaining: number = arenaConfig.timerSeconds
-  private lastEmittedTimer = Math.ceil(arenaConfig.timerSeconds)
+  private timeRemaining: number = this.arenaConfig.timerSeconds
+  private lastEmittedTimer = Math.ceil(this.arenaConfig.timerSeconds)
   private lastSafePlayerPosition: { x: number; y: number } = {
-    x: arenaConfig.playerX,
-    y: arenaConfig.playerY,
+    x: this.arenaConfig.playerX,
+    y: this.arenaConfig.playerY,
   }
+  private lastMoveDirection = { x: 1, y: 0 }
+  private dashKey!: Phaser.Input.Keyboard.Key
+  private dashCooldownRemaining = 0
+  private dashTimer = 0
+  private readonly dashCooldownMs = 420
+  private readonly dashDurationMs = 130
+  private readonly dashStrength = 520
   private isRecoveringFromImpact = false
   private impactRecoveryMs = 0
-  private readonly maxScore = arenaConfig.shardSpawns.length
+  private currentLevelIndex = 0
+  private cumulativeScore = 0
+  private readonly maxScore = levelConfigs[0].shardSpawns.length
   private readonly requiredShards = 3
   private readonly timeBonusMultiplier = 1
   private isGameOver = false
+  private get arenaConfig() {
+    return levelConfigs[this.currentLevelIndex] ?? levelConfigs[0]
+  }
+  private soundContext?: AudioContext
   private readonly callbacks: {
     onScoreChange?: (score: number) => void
     onRunComplete?: (score: number) => void
@@ -73,9 +126,19 @@ export class GameScene extends Phaser.Scene {
     eventTarget?: EventTarget
   }
 
-  constructor(callbacks: { onScoreChange?: (score: number) => void; onRunComplete?: (score: number) => void; onRunLose?: (score: number) => void; eventTarget?: EventTarget } = {}) {
+  constructor(
+    callbacks: { onScoreChange?: (score: number) => void; onRunComplete?: (score: number) => void; onRunLose?: (score: number) => void; eventTarget?: EventTarget } = {},
+    initialLevelIndex = 0,
+    initialCumulativeScore = 0,
+  ) {
     super('GameScene')
     this.callbacks = callbacks
+    this.currentLevelIndex = initialLevelIndex
+    this.cumulativeScore = initialCumulativeScore
+  }
+
+  private getCurrentRequiredShards() {
+    return this.currentLevelIndex === 0 ? 3 : 5
   }
 
   private emitGameEvent(eventName: GameEventName, detail: Record<string, number | boolean | string>) {
@@ -118,7 +181,7 @@ export class GameScene extends Phaser.Scene {
   private createWallMaze() {
     this.walls = this.physics.add.staticGroup()
 
-    for (const wallConfig of arenaConfig.wallSegments) {
+    for (const wallConfig of this.arenaConfig.wallSegments) {
       const wall = this.add.rectangle(
         wallConfig.x,
         wallConfig.y,
@@ -132,16 +195,39 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private getSafeSpawnPosition(x: number, y: number, width: number, height: number) {
+  private getSafeSpawnPosition(x: number, y: number, width: number, height: number, minDistanceFromPlayer = 0) {
     const candidate = { x, y }
     const testBody = this.add.rectangle(candidate.x, candidate.y, width, height)
     this.physics.add.existing(testBody)
 
     const overlapsWall = this.physics.overlap(testBody, this.walls)
+    const playerDistance = this.player ? Math.hypot(candidate.x - this.player.x, candidate.y - this.player.y) : Number.POSITIVE_INFINITY
+    const overlapsPlayer = minDistanceFromPlayer > 0 && playerDistance < minDistanceFromPlayer
     testBody.destroy()
 
-    if (!overlapsWall) {
+    if (!overlapsWall && !overlapsPlayer) {
       return candidate
+    }
+
+    const searchRadius = 28
+    const searchSteps = 12
+
+    for (let offset = searchRadius; offset <= 220; offset += searchRadius) {
+      for (let angle = 0; angle < Math.PI * 2; angle += (Math.PI * 2) / searchSteps) {
+        const nextX = x + Math.cos(angle) * offset
+        const nextY = y + Math.sin(angle) * offset
+        const probe = this.add.rectangle(nextX, nextY, width, height)
+        this.physics.add.existing(probe)
+
+        const probeOverlapsWall = this.physics.overlap(probe, this.walls)
+        const probePlayerDistance = this.player ? Math.hypot(nextX - this.player.x, nextY - this.player.y) : Number.POSITIVE_INFINITY
+        const probeOverlapsPlayer = minDistanceFromPlayer > 0 && probePlayerDistance < minDistanceFromPlayer
+        probe.destroy()
+
+        if (!probeOverlapsWall && !probeOverlapsPlayer) {
+          return { x: nextX, y: nextY }
+        }
+      }
     }
 
     return { x: 80, y: 80 }
@@ -153,11 +239,71 @@ export class GameScene extends Phaser.Scene {
     this.scene.pause()
   }
 
+  private ensureAudio() {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    const AudioCtor = window.AudioContext ?? (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+    if (!AudioCtor) {
+      return
+    }
+
+    this.soundContext ??= new AudioCtor()
+
+    if (this.soundContext.state === 'suspended') {
+      void this.soundContext.resume().catch(() => undefined)
+    }
+  }
+
+  private playTone(frequency: number, duration = 0.08, volume = 0.04, type: OscillatorType = 'sine') {
+    if (!this.soundContext) {
+      return
+    }
+
+    const oscillator = this.soundContext.createOscillator()
+    const gain = this.soundContext.createGain()
+
+    oscillator.type = type
+    oscillator.frequency.value = frequency
+
+    gain.gain.value = volume
+    gain.gain.setValueAtTime(volume, this.soundContext.currentTime)
+    gain.gain.exponentialRampToValueAtTime(0.0001, this.soundContext.currentTime + duration)
+
+    oscillator.connect(gain)
+    gain.connect(this.soundContext.destination)
+
+    oscillator.start()
+    oscillator.stop(this.soundContext.currentTime + duration)
+  }
+
+  private triggerDash() {
+    if (this.isGameOver || this.dashCooldownRemaining > 0) {
+      return
+    }
+
+    const body = this.player.body as Phaser.Physics.Arcade.Body | undefined
+    if (!body) {
+      return
+    }
+
+    this.ensureAudio()
+    this.dashCooldownRemaining = this.dashCooldownMs
+    this.dashTimer = this.dashDurationMs
+    this.playTone(330, 0.08, 0.03, 'square')
+    body.setVelocity(this.lastMoveDirection.x * this.dashStrength, this.lastMoveDirection.y * this.dashStrength)
+  }
+
   private triggerPlayerImpact(kind: 'wall' | 'guardian' = 'wall') {
     if (this.isRecoveringFromImpact) {
       return
     }
 
+    if (kind !== 'wall') {
+      this.ensureAudio()
+      this.playTone(120, 0.09, 0.05, 'sawtooth')
+    }
     this.isRecoveringFromImpact = true
     this.impactRecoveryMs = 150
 
@@ -190,6 +336,8 @@ export class GameScene extends Phaser.Scene {
       return
     }
 
+    this.ensureAudio()
+    this.playTone(90, 0.22, 0.06, 'triangle')
     this.emitGameEvent('game-lost', {
       score: this.score,
       timeRemaining: this.timeRemaining,
@@ -210,13 +358,32 @@ export class GameScene extends Phaser.Scene {
       return
     }
 
-    const finalScore = this.getRunScore()
+    this.ensureAudio()
+    this.playTone(620, 0.12, 0.05, 'triangle')
+    this.playTone(820, 0.18, 0.05, 'triangle')
+
+    const levelScore = this.getRunScore()
+    this.cumulativeScore += levelScore
+    const isFinalLevel = this.currentLevelIndex >= levelConfigs.length - 1
+
     this.emitGameEvent('game-won', {
-      score: finalScore,
+      score: levelScore,
+      totalScore: this.cumulativeScore,
       relics: this.score,
       timeRemaining: this.timeRemaining,
+      levelIndex: this.currentLevelIndex,
+      isFinalLevel,
     })
-    this.callbacks.onRunComplete?.(finalScore)
+
+    if (!isFinalLevel) {
+      this.isGameOver = true
+      this.physics.pause()
+      this.scene.pause()
+      this.callbacks.onRunComplete?.(this.cumulativeScore)
+      return
+    }
+
+    this.callbacks.onRunComplete?.(this.cumulativeScore)
     this.finishRun()
   }
 
@@ -325,8 +492,8 @@ export class GameScene extends Phaser.Scene {
 
   private getRouteAroundWall() {
     const cellSize = 20
-    const cols = Math.ceil(arenaConfig.width / cellSize)
-    const rows = Math.ceil(arenaConfig.height / cellSize)
+    const cols = Math.ceil(this.arenaConfig.width / cellSize)
+    const rows = Math.ceil(this.arenaConfig.height / cellSize)
 
     const start = {
       x: Math.round(this.guardian.x / cellSize),
@@ -438,7 +605,19 @@ export class GameScene extends Phaser.Scene {
   }
 
   create() {
+    const data = this.scene.settings.data as { levelIndex?: number } | undefined
+    if (typeof data?.levelIndex === 'number' && data.levelIndex >= 0) {
+      this.currentLevelIndex = Math.min(data.levelIndex, levelConfigs.length - 1)
+    }
+
+    this.isGameOver = false
     this.callbacks.eventTarget?.addEventListener('game-command', this.handleCommand)
+
+    this.dashKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE)
+    this.input.keyboard!.on('keydown-SPACE', () => {
+      this.ensureAudio()
+      this.triggerDash()
+    })
 
     if (this.physics.world.debugGraphic) {
       this.physics.world.debugGraphic.setVisible(false)
@@ -447,7 +626,7 @@ export class GameScene extends Phaser.Scene {
 
     this.createWallMaze()
 
-    const playerSpawn = this.getSafeSpawnPosition(arenaConfig.playerX, arenaConfig.playerY, 24, 24)
+    const playerSpawn = this.getSafeSpawnPosition(this.arenaConfig.playerX, this.arenaConfig.playerY, 24, 24)
     this.player = this.add.rectangle(playerSpawn.x, playerSpawn.y, 24, 24, 0x4da6ff)
     this.physics.add.existing(this.player)
     this.lastSafePlayerPosition = { x: playerSpawn.x, y: playerSpawn.y }
@@ -456,13 +635,18 @@ export class GameScene extends Phaser.Scene {
     body.setCollideWorldBounds(true)
 
     this.cursors = this.input.keyboard!.createCursorKeys()
-    this.keys = this.input.keyboard!.addKeys('W,A,S,D') as typeof this.keys
+    this.keys = this.input.keyboard!.addKeys('W,A,S,D') as {
+      A: Phaser.Input.Keyboard.Key
+      D: Phaser.Input.Keyboard.Key
+      W: Phaser.Input.Keyboard.Key
+      S: Phaser.Input.Keyboard.Key
+    }
 
     this.physics.add.collider(this.player, this.walls, () => {
       this.triggerPlayerImpact('wall')
     })
 
-    const guardianSpawn = this.getSafeSpawnPosition(arenaConfig.guardianStart.x, arenaConfig.guardianStart.y, 26, 26)
+    const guardianSpawn = this.getSafeSpawnPosition(this.arenaConfig.guardianStart.x, this.arenaConfig.guardianStart.y, 26, 26, 110)
     this.guardian = this.add.rectangle(guardianSpawn.x, guardianSpawn.y, 26, 26, 0xff3b30)
     this.physics.add.existing(this.guardian)
     const guardianBody = this.guardian.body as Phaser.Physics.Arcade.Body
@@ -475,17 +659,32 @@ export class GameScene extends Phaser.Scene {
       this.triggerPlayerImpact('wall')
     })
 
-    const exitX = arenaConfig.exit.x
-    const exitY = arenaConfig.exit.y
+    if (this.currentLevelIndex > 0) {
+      const secondGuardianSpawn = this.getSafeSpawnPosition(700, 200, 26, 26, 130)
+      this.secondGuardian = this.add.rectangle(secondGuardianSpawn.x, secondGuardianSpawn.y, 26, 26, 0xff7a59)
+      this.physics.add.existing(this.secondGuardian)
+      const secondGuardianBody = this.secondGuardian.body as Phaser.Physics.Arcade.Body
+      secondGuardianBody.setCollideWorldBounds(true)
+      this.physics.add.collider(this.player, this.secondGuardian, () => {
+        this.triggerPlayerImpact('guardian')
+        this.triggerLose()
+      })
+      this.physics.add.collider(this.secondGuardian, this.walls, () => {
+        this.triggerPlayerImpact('wall')
+      })
+    }
+
+    const exitX = this.arenaConfig.exit.x
+    const exitY = this.arenaConfig.exit.y
     this.exit = this.add.rectangle(exitX, exitY, 36, 36, 0x6a5acd)
     this.physics.add.existing(this.exit, true)
     this.physics.add.overlap(this.player, this.exit, () => {
-      if (this.score >= this.requiredShards) {
+      if (this.score >= this.getCurrentRequiredShards()) {
         this.triggerWin()
       }
     })
 
-    for (const shardPosition of arenaConfig.shardSpawns) {
+    for (const shardPosition of this.arenaConfig.shardSpawns) {
       const shard = createShard(this, shardPosition.x, shardPosition.y)
       this.shards.push(shard)
 
@@ -507,12 +706,15 @@ export class GameScene extends Phaser.Scene {
           },
         })
 
+        this.ensureAudio()
+        this.playTone(440, 0.08, 0.05, 'triangle')
+
         this.shards = this.shards.filter((item) => item !== shard)
         this.score += 1
         this.callbacks.onScoreChange?.(this.score)
         this.emitGameEvent('shard-collected', { score: this.score, total: this.maxScore })
 
-        if (this.score >= this.requiredShards) {
+        if (this.score >= this.getCurrentRequiredShards()) {
           this.exit.setFillStyle(0x41d17d)
           this.tweens.add({
             targets: this.exit,
@@ -526,7 +728,7 @@ export class GameScene extends Phaser.Scene {
       })
     }
 
-    this.emitGameEvent('timer-changed', { timeRemaining: this.timeRemaining, totalTime: arenaConfig.timerSeconds })
+    this.emitGameEvent('timer-changed', { timeRemaining: this.timeRemaining, totalTime: this.arenaConfig.timerSeconds })
     this.callbacks.onScoreChange?.(this.score)
   }
 
@@ -542,6 +744,14 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
+    if (this.dashCooldownRemaining > 0) {
+      this.dashCooldownRemaining = Math.max(0, this.dashCooldownRemaining - this.game.loop.delta)
+    }
+
+    if (this.dashTimer > 0) {
+      this.dashTimer = Math.max(0, this.dashTimer - this.game.loop.delta)
+    }
+
     if (this.physics.world.isPaused || this.scene.isPaused() || this.isGameOver) {
       return
     }
@@ -553,7 +763,7 @@ export class GameScene extends Phaser.Scene {
       this.lastEmittedTimer = nextTimerValue
       this.emitGameEvent('timer-changed', {
         timeRemaining: this.timeRemaining,
-        totalTime: arenaConfig.timerSeconds,
+        totalTime: this.arenaConfig.timerSeconds,
       })
     }
 
@@ -573,8 +783,19 @@ export class GameScene extends Phaser.Scene {
     const length = Math.hypot(x, y) || 1
     const body = this.player.body as Phaser.Physics.Arcade.Body
 
+    if (x !== 0 || y !== 0) {
+      this.lastMoveDirection = {
+        x: x / length,
+        y: y / length,
+      }
+    }
+
     this.lastSafePlayerPosition = { x: this.player.x, y: this.player.y }
-    body.setVelocity((x / length) * arenaConfig.moveSpeed, (y / length) * arenaConfig.moveSpeed)
+
+    const dashBoost = this.dashTimer > 0 ? 1 : 0
+    const dashVelocityX = this.lastMoveDirection.x * this.dashStrength * dashBoost
+    const dashVelocityY = this.lastMoveDirection.y * this.dashStrength * dashBoost
+    body.setVelocity((x / length) * this.arenaConfig.moveSpeed + dashVelocityX, (y / length) * this.arenaConfig.moveSpeed + dashVelocityY)
 
     const guardianBody = this.guardian.body as Phaser.Physics.Arcade.Body
     const { x: chaseX, y: chaseY } = this.findBestChaseDirection()
@@ -590,6 +811,14 @@ export class GameScene extends Phaser.Scene {
         repeat: 1,
         ease: 'Sine.easeInOut',
       })
+    }
+
+    if (this.secondGuardian) {
+      const secondGuardianBody = this.secondGuardian.body as Phaser.Physics.Arcade.Body
+      const secondDx = this.player.x - this.secondGuardian.x
+      const secondDy = this.player.y - this.secondGuardian.y
+      const secondLength = Math.hypot(secondDx, secondDy) || 1
+      secondGuardianBody.setVelocity((secondDx / secondLength) * 100, (secondDy / secondLength) * 100)
     }
 
     if (chaseLength < 0.0001) {

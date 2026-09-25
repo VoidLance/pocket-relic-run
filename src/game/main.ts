@@ -26,10 +26,15 @@ const gameConfig: Phaser.Types.Core.GameConfig = {
   },
 }
 
-export function createGame(parent: HTMLElement, callbacks: GameCallbacks = {}) {
+export function createGame(
+  parent: HTMLElement,
+  callbacks: GameCallbacks = {},
+  initialLevelIndex = 0,
+  initialCumulativeScore = 0,
+) {
   return new Phaser.Game({
     ...gameConfig,
     parent,
-    scene: [new GameScene(callbacks)],
+    scene: [new GameScene(callbacks, initialLevelIndex, initialCumulativeScore)],
   })
 }
